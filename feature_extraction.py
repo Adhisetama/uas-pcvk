@@ -45,8 +45,11 @@ def calculate_differential_structure(segmented_image):
     return differential_structure
 
 def get_features(dataset_path, image_id):
-    segmented = cv2.cvtColor(cv2.resize(cv2.imread(f'{dataset_path}/{image_id}_segmentation.png'), (256, 256)), cv2.COLOR_BGR2GRAY)
-    image = cv2.resize(cv2.imread(f'{dataset_path}/{image_id}.jpg'), (256, 256))
+    segmented = cv2.cvtColor(cv2.imread(f'{dataset_path}/{image_id}_segmentation.png'), cv2.COLOR_BGR2GRAY)
+    image = cv2.imread(f'{dataset_path}/{image_id}.jpg')
+
+    contours, _ = cv2.findContours(segmented, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour = max(contours, key=cv2.contourArea)
 
     return {
         'asymmetry': calculate_asymmetry(segmented),
