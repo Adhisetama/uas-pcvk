@@ -1,4 +1,5 @@
 PROJECT_Data/
+PROJECT_Data_Augmented/
 __pycache__/
 ISIC_2017_Data_GroundTruth_Classification.csv
 project_skin_lesions.pdf
