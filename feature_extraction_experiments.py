@@ -30,42 +30,50 @@ def calc_hsv(image, segmented_image):
     h, s, v = hsv[:, 0], hsv[:, 1], hsv[:, 2]
 
     return {
-        'std_hue'        : np.std(h),
-        'std_saturation' : np.std(s),
+        'std_color' : np.std(s) + np.std(h),
         # 'std_value'      : np.std(v) note: mungkin ini gaperlu
     }
 
 
-'''
-algoritma: 
-    "menengahkan" dan "merotasi" gambar sehingga nilai asymmetry indexnya sekecil mungkin
-    dgn nilai center dan angle dari cv2.fitEllipse(). Lalu bandingkan seberapa banyak yg
-    "overlap" dibanding luas asli, terhadap sumbu x dan y. Lalu rata-rata hasilnya.
-note:
-    Definisi ini aku buat sendiri soalnya ngga nemu referensi yang menstandarkan perhitungan
-    indeks simetri dari gambar. Dari definisi ini, harusnya sih nilainya dari 0-1 dimana
-    1 itu perfect symmetry (horizontal dan vertikal)
-'''
-def calc_symmetry(segmented, contour):
-    ellipse = cv2.fitEllipse(contour)
-    (x, y), (MA, ma), angle = ellipse
+def calc_symmetry(segmented_image):
+    M = cv2.moments(segmented_image)
+    cX = int(M["m10"] / M["m00"])
+    cY = int(M["m01"] / M["m00"])
     
-    cx, cy = int(x), int(y)
-    rotation_matrix = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
-    rotated_image = cv2.warpAffine(segmented, rotation_matrix, (segmented.shape[1], segmented.shape[0]))
-    centered =  _pad_center(rotated_image, (cx, cy))
-
-    flip_v = cv2.flip(centered, 0)
-    flip_h = cv2.flip(centered, 1)
-    overlap_v = np.sum((centered > 0) & (flip_v > 0))
-    overlap_h = np.sum((centered > 0) & (flip_h > 0))
-    area = np.sum(centered > 0)
+    top_left = segmented_image[:cY, :cX]
+    top_right = segmented_image[:cY, cX:]
+    bottom_left = segmented_image[cY:, :cX]
+    bottom_right = segmented_image[cY:, cX:]
     
-    return {
-        'symmetry': (overlap_h + overlap_v) * 0.5 / area,
-        'area': area / (segmented.shape[0] * segmented.shape[1])
-        }
+    symmetry_score = (cv2.matchShapes(top_left, bottom_right, 1, 0.0) + 
+                      cv2.matchShapes(top_right, bottom_left, 1, 0.0)) / 2
+    return { 'symmetry': symmetry_score }
 
+def calc_reciprocal_circularity(contour):
+    perimeter = cv2.arcLength(contour, True)
+    area = cv2.contourArea(contour)
+    return { '1/circularity': perimeter**2 / (4 * np.pi * area) }
+
+def calc_smoothness(contour):
+    x = contour[:, 0, 0]
+    y = contour[:, 0, 1]
+
+    from scipy.ndimage import gaussian_filter1d
+    x_smooth = gaussian_filter1d(x, sigma=1)
+    y_smooth = gaussian_filter1d(y, sigma=1)
+
+    dx = np.gradient(x_smooth)
+    dy = np.gradient(y_smooth)
+    ddx = np.gradient(dx)
+    ddy = np.gradient(dy)
+
+    curvature = np.abs(ddx * dy - dx * ddy) / (dx**2 + dy**2)**1.5
+    return { 'smoothness': 1 / np.var(curvature) }
+
+def calc_std_color(image, segmented_image):
+    masked_image = cv2.bitwise_and(image, image, mask=segmented_image)
+    color_stddev = np.std(masked_image[segmented_image > 0], axis=0)
+    return { 'std_color': np.mean(color_stddev) }
 
 def get_features(dataset_path, image_id):
     segmented = cv2.cvtColor(cv2.imread(f'{dataset_path}/{image_id}_segmentation.png'), cv2.COLOR_BGR2GRAY)
@@ -76,7 +84,10 @@ def get_features(dataset_path, image_id):
 
     features = {}
 
-    features.update(calc_hsv(image, segmented))
-    features.update(calc_symmetry(segmented, contour))
+    # features.update(calc_hsv(image, segmented))
+    features.update(calc_symmetry(segmented))
+    features.update(calc_std_color(image, segmented))
+    features.update(calc_reciprocal_circularity(contour))
+    features.update(calc_smoothness(contour))
 
     return features
